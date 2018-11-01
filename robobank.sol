@@ -75,7 +75,6 @@ contract RoboBank7 {
     uint _capital;
     uint _minutePriceForDeposit;
     uint _minutePriceForCredit;
-    uint8 _k_riska;
     uint _creditAmount;    
     uint _creditPercents;
 
@@ -89,7 +88,7 @@ contract RoboBank7 {
     
     	_percentDeposit = 5;
     	_percentCredit = 10;
-    	_k_riska = 7;
+    	_creditLossPercent = 3;
     	_capital = msg.value; 
     	uint16 year = DateTime.getYear(now);
     	bool isLeapYear = DateTime.isLeapYear(year);
@@ -290,13 +289,12 @@ contract RoboBank7 {
     
     function checkCredits(uint256 time) internal {
         Credit[] memory creditsAtTime = credits.creditsByTime[time];
-        uint256 len = creditsAtTime.length;
         for (uint16 i = 0; i < creditsAtTime.length; i++) {
              Credit memory blackCredit = creditsAtTime[i];
-	     address blackAddress = blackCredit.creditor;
-	     BlackClient storage blackClient = blackList[blackAddress];
-	     CreditOperation[] storage blackOperationsForClient = blackClient.credits;
-	     blackOperationsForClient.push(CreditOperation(time, blackCredit.amount));
+			 address blackAddress = blackCredit.creditor;
+			 BlackClient storage blackClient = blackList[blackAddress];
+			 CreditOperation[] storage blackOperationsForClient = blackClient.credits;
+			 blackOperationsForClient.push(CreditOperation(time, blackCredit.amount));
         }
     }
     
@@ -332,13 +330,20 @@ contract RoboBank7 {
         whiteClient.usedRating -= usedRating;
     }
     
+    // TODO - убрать возвращение строки
+    // Дима
+    function nows() public payable returns (uint256) {
+        var a = now;
+        return a;
+    }
+    
     // увеличь рейтинг и уменьши выбранный рейтинг 
     // Сергей
     function updateRatings(address clientAddress, uint usedRating, uint creditNumber) internal {
         WhiteClient whiteClient = whiteList[clientAddress];
         whiteClient.usedRating += usedRating;
         uint currentRating = whiteClient.rating;
-        whiteClient.rating *= usedRating/currentRating * _k_riska * (1 + 1 / creditNumber) / 10;
+        whiteClient.rating *= usedRating/currentRating * _creditLossPercent * (1 + 1 / creditNumber) / 10;
     }
     
     // расчет процентов в год, typeEvent = 1 - кредит, typeEvent = 2 - депозит

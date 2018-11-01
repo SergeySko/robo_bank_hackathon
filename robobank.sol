@@ -1,27 +1,37 @@
 pragma solidity >=0.4.24 <0.6.0;
  
 import "github.com/Arachnid/solidity-stringutils/strings.sol";
- 
-contract RoboBank7 {
+import "http://github.com/OpenZeppelin/openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
+
+contract RoboBank is ERC20 {
     using strings for *;
     
+    event Test(string);
+    event TestData(string, bool, uint, uint);
+    event DealEvent(int typeEvent, address client, uint value, uint startDate, uint endDate); 
+    event DealEndEvent(int typeEvent, address client, uint value, uint endDate);
+    
     struct DayEntry {
-        mapping(uint8 => HourEntry) childs;
         uint sum;
         uint percent;
+        mapping(uint8 => HourEntry) childs;
     }
     
     struct HourEntry {
-        DayEntry parent;
-        mapping(uint8 => MinuteEntry) childs;
         uint sum;
+        mapping(uint8 => MinuteEntry) childs;
+        uint8 headIndex;
+        uint8 tailIndex;
+        uint8 firstHaveMoneyIndex;
     }
     
     struct MinuteEntry {
-        HourEntry parent;
+        uint sum;
         mapping(uint => Operation) operations;
         uint count;
-        uint sum;
+        uint8 nextIndex;
+        uint8 prevIndex;
+        uint8 nextHaveMoneyIndex;
     }
     
     struct Operation {
@@ -30,6 +40,14 @@ contract RoboBank7 {
         uint sum;
         uint percent;
         address clientAddress;
+    }
+    
+    struct Allocate {
+        uint8 hour;
+        uint8 firstIndex;   // для первой структуры - первая минута слево от периода, для других первая минута часа
+        uint8 lastIndex;    // если != fakeIndex, то индекс минуты у которой отщипываем сумму
+        uint sum;           // сумма часа
+        bool isCompleted;   // распределение закончено в этом часе?
     }
     
     struct WhiteClient {
@@ -45,165 +63,405 @@ contract RoboBank7 {
     
     struct Credit {
         address creditor;
-        uint16 amount;
+        uint amount;
     }
     
     struct Credits {
-        uint16 allCredAmount;
+        uint amount;
+        uint credPercent;
         mapping (uint256 => Credit[]) creditsByTime; 
-        mapping (address => Credit[]) creditsByAddress;
-        
+        mapping (address => CreditorList) creditsByAddress;
+    }
+    
+    struct CreditorList {
+        uint head;
+        uint count;
+        mapping (uint => Node) listCr;
+    }
+    
+    struct Node {
+        uint next;
+        uint prev;
+        uint endTime;
     }
     
     struct CreditOperation {
         uint256 time;
-        uint16 amount;
+        uint amount;
     }
-    
-    
-    address private owner;  // владелец 
-    
-    mapping(address => WhiteClient) private whiteList;
-    mapping(address => BlackClient) private blackList;
-    address[] whiteListKeys;
-    address[] blackListKeys;
-    
-    uint8 _percentDeposit;
-    uint8 _percentCredit;
-    uint8 _creditLossPercent;
-    uint8 _depCredIndexInPercent;
-    uint _capital;
-    uint _minutePriceForDeposit;
-    uint _minutePriceForCredit;
-    uint _creditAmount;    
-    uint _creditPercents;
-
     
     DayEntry private deposits;
     Credits private credits;
     
-    constructor () public payable {
-    	owner = msg.sender;
-    	deposits = DayEntry(0, 0);
+    address private owner;
+    uint _capital;
+    uint8 _percentDeposit;
+    uint8 _percentCredit;
+    uint _minutePriceForDeposit;
+    uint _minutePriceForCredit;
+    uint8 _creditLossPercent;
+    uint8 _depCredIndexInPercent;
     
-    	_percentDeposit = 5;
+    uint8 fakeIndex = 60;
+    
+    // mapping(address => WhiteClient) private whiteList;
+    // mapping(address => BlackClient) private blackList;
+    
+    mapping(address => WhiteClient) private whiteList;
+    mapping(address => CreditOperation[]) private blackList;
+    
+    address[] whiteListKeys;
+    address[] blackListKeys;
+    
+    mapping(uint8 => Allocate) allocates;
+    
+    constructor () public payable {
+        owner = msg.sender;
+        _capital = msg.value;
+        deposits = DayEntry(0, 0);
+        
+        _percentDeposit = 5;
     	_percentCredit = 10;
     	_creditLossPercent = 3;
-    	_capital = msg.value; 
-    	uint16 year = DateTime.getYear(now);
+    	_depCredIndexInPercent = 90;
+        
+        uint16 year = DateTime.getYear(now);
     	bool isLeapYear = DateTime.isLeapYear(year);
     	uint minuteInYear;
     	if (isLeapYear) {
     		minuteInYear = 366*24*60;
-        
     	} else {
     		minuteInYear = 365*24*60;
     	}
     	_minutePriceForDeposit = _percentDeposit * 1e16 / minuteInYear;
     	_minutePriceForCredit = _percentCredit * 1e16 / minuteInYear;
-    	
-    	WhiteClient memory whiteClient1 = WhiteClient(0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c, 30, 30);
-    	WhiteClient memory whiteClient2 = WhiteClient(0x4b0897b0513fdc7c541b6d9d7e929c4e5364d2db, 30, 30);
-    	whiteList[0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c] = whiteClient1;
-    	whiteListKeys.push(0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c);
-    	whiteList[0x4b0897b0513fdc7c541b6d9d7e929c4e5364d2db] = whiteClient1;
-    	whiteListKeys.push(0x4b0897b0513fdc7c541b6d9d7e929c4e5364d2db);
+        
+        // создаем сразу HourEntry, т.к. это прообраз месяца, а раз в месяц депозит точно будет принят
+        uint8 i;
+        for (i = 0; i < 24; i++) {
+            deposits.childs[i] = HourEntry(0, fakeIndex, fakeIndex, fakeIndex);
+        }
     }
     
-    // TODO - убрать возвращение строки
-    // Дима
-    function putDeposit(uint8 period) public payable returns (string) {
-        bytes memory result;
+    modifier onlyOwner
+    {
+        require(
+            msg.sender == owner,
+            "Операция доступна только владельцу контракта!"
+        );
+        _;
+    }
+    
+    function putDeposit(uint _period, uint _value) public {
+    // function putDeposit(uint _period, uint _value) public payable {
+        string memory result;
+        uint8 haveMoneyIndex;
+        uint8 nextHaveMoneyIndex;
         uint startTime = now;
+        uint period = _period;
+        uint value = _value;
+        // uint percent = calculatePercent(2, period, msg.value);
+        uint percent = calculatePercent(2, period, value);
         
         Operation memory operation = Operation(startTime, 
                                         startTime + (period * 60), 
-                                        msg.value, 
-                                        calculatePercent(1, period, msg.value),
+                                        value, 
+                                        percent,
                                         msg.sender);
         
-        require(canGetDeposit(operation), 
+        require(operation.sum != 0, 
+            "Депозит не может быть принят, где деньги сынок?!"
+        );
+        
+        require(canBeDepositPut(operation.sum), 
             "Депозит не может быть принят, пора снижать ставку!"
         );
         
-        // увеличим сумму дня
+        uint8 hour = DateTime.getHour(operation.endTime);
+        uint8 minute = DateTime.getMinute(operation.endTime);
+        
+        TestData("time",false,hour,minute);
+        
+        // увеличим сумму дня и % дня
         deposits.sum = deposits.sum + operation.sum;
         deposits.percent = deposits.percent + operation.percent;
         
-        uint8 hour = DateTime.getHour(operation.endTime);
-        
-        if (deposits.childs[hour].sum == 0) {
-            deposits.childs[hour] = HourEntry(deposits, operation.sum);
-            result = "create hour";
-        } else {
-            result = "exists hour";
-        }
-        
-        HourEntry storage hourEntry = deposits.childs[hour]; 
         // увеличим сумму часа
-        hourEntry.sum = hourEntry.sum + operation.sum;
-            
-        uint8 minute = DateTime.getMinute(operation.endTime);
+        deposits.childs[hour].sum = deposits.childs[hour].sum + operation.sum; 
         
-        if (hourEntry.childs[minute].sum == 0) {
-            hourEntry.childs[minute] = MinuteEntry(hourEntry, 0, operation.sum);
-            result = ConcatHelper.concat(result, ", create minute");
+        HourEntry hourEntry = deposits.childs[hour];
+        
+        if (hourEntry.headIndex == fakeIndex) {
+            result = "список пуст, вставим первую минуту";
+            hourEntry.childs[minute] = MinuteEntry(operation.sum, 1, fakeIndex, fakeIndex, fakeIndex);
+            hourEntry.headIndex = minute;
+            hourEntry.tailIndex = minute;
+            hourEntry.firstHaveMoneyIndex = minute;
+        } else if (hourEntry.headIndex > minute) {
+            result = "вставляем минуту в начало списка";
+            hourEntry.childs[minute] = MinuteEntry(operation.sum, 1, hourEntry.headIndex, fakeIndex, hourEntry.firstHaveMoneyIndex);
+            hourEntry.headIndex = minute;
+            hourEntry.firstHaveMoneyIndex = minute;
+        } else if (hourEntry.tailIndex < minute) {
+            result = "вставляем минуту в конец списка";
+            hourEntry.childs[minute] = MinuteEntry(operation.sum, 1, fakeIndex, hourEntry.tailIndex, fakeIndex);
+            
+            if (hourEntry.firstHaveMoneyIndex == fakeIndex) { 
+                result = concate(result, ", выставим флаг firstHaveMoneyIndex = minute, если ранее все уже покрыты кредитами");
+                hourEntry.firstHaveMoneyIndex = minute;    
+                hourEntry.childs[hourEntry.tailIndex].nextIndex = minute;
+                hourEntry.tailIndex = minute;
+            } else if (hourEntry.childs[hourEntry.tailIndex].sum > 0) { 
+                result = concate(result, " - последний шаг имеет деньги, теперь он предполедний");
+                hourEntry.childs[hourEntry.tailIndex].nextHaveMoneyIndex = minute;
+                hourEntry.childs[hourEntry.tailIndex].nextIndex = minute;
+                hourEntry.tailIndex = minute;
+            } else {
+                result = concate(result, " - нужно найти минуту слева с деньгами и переписать nextHaveMoneyIndex на вставленную минуту");
+                haveMoneyIndex = hourEntry.firstHaveMoneyIndex;
+                nextHaveMoneyIndex = hourEntry.childs[index].nextHaveMoneyIndex;
+                
+                while (haveMoneyIndex < minute && nextHaveMoneyIndex < minute) {
+                    haveMoneyIndex = nextHaveMoneyIndex;
+                    nextHaveMoneyIndex = hourEntry.childs[haveMoneyIndex].nextHaveMoneyIndex;
+                }
+                
+                hourEntry.childs[haveMoneyIndex].nextHaveMoneyIndex = minute;
+            }
         } else {
-            result = ConcatHelper.concat(result, ", exists minute");
+            if (hourEntry.childs[minute].nextIndex == 0) {
+                result = "создаем минуту";
+                uint8 index = hourEntry.headIndex;
+                uint8 nextIndex = hourEntry.childs[index].nextIndex;
+                
+                while (index < minute && nextIndex < minute) {
+                    index = nextIndex;
+                    nextIndex = hourEntry.childs[index].nextIndex;
+                }
+                
+                hourEntry.childs[minute] = MinuteEntry(operation.sum, 1, nextIndex, index, fakeIndex);
+            } else {
+                result = "добавим сумму и кол-во операций в найденную минуту";
+                hourEntry.childs[minute].count = hourEntry.childs[minute].count + 1; 
+                hourEntry.childs[minute].sum = hourEntry.childs[minute].sum + operation.sum; 
+            }
+            
+            if (hourEntry.firstHaveMoneyIndex > minute) {
+                result = concate(result, " - устанавливаем индекс наличия денег");
+                if (hourEntry.firstHaveMoneyIndex == fakeIndex) {
+                    hourEntry.childs[minute].nextHaveMoneyIndex = fakeIndex;
+                } else {
+                    hourEntry.childs[minute].nextHaveMoneyIndex = hourEntry.firstHaveMoneyIndex;  
+                }
+                
+                hourEntry.firstHaveMoneyIndex == minute;    
+            } else {
+                result = concate(result, " - бежим по минутам с деньгами от hourEntry.firstHaveMoneyIndex до minute и ищем минимально меньшую чтобы переписать ей индекс на вставленую минуту");
+                haveMoneyIndex = hourEntry.firstHaveMoneyIndex;
+                nextHaveMoneyIndex = hourEntry.childs[index].nextHaveMoneyIndex;
+                
+                while (haveMoneyIndex < minute && nextHaveMoneyIndex < minute) {
+                    haveMoneyIndex = nextHaveMoneyIndex;
+                    nextHaveMoneyIndex = hourEntry.childs[haveMoneyIndex].nextHaveMoneyIndex;
+                }
+                
+                hourEntry.childs[haveMoneyIndex].nextHaveMoneyIndex = minute;
+                hourEntry.childs[minute].nextHaveMoneyIndex = nextHaveMoneyIndex;
+            }
         }
         
-        MinuteEntry storage minuteEntry = hourEntry.childs[minute]; 
-        // увеличим сумму минуты
-        minuteEntry.sum = minuteEntry.sum + operation.sum;
-        minuteEntry.operations[minuteEntry.count] = operation;
-        minuteEntry.count = minuteEntry.count + 1;
+        result = concate(result, " - вставить операцию в минуту");
         
-        owner.transfer(msg.value);
+        MinuteEntry minuteEntry = hourEntry.childs[minute];
+        minuteEntry.operations[minuteEntry.count-1] = operation;
         
-        sendEvent(2, operation.endTime);
+        // owner.transfer(msg.value);
+        transfer(owner, value);
         
-        return string(result);
+        emit DealEvent(2, msg.sender, operation.sum, operation.startTime, operation.endTime);
+        
+        TestData(string(result), false, hour, minute);
     }
     
-    // Проверяем, можем ли дать новый депозит
-    function canBeDepositPut(uint depositSum) internal returns (bool) {
-        uint creditLoss = _creditAmount*_creditLossPercent / 100;
-        uint totalLoss = deposits.percent + creditLoss;
-        uint totalEarnPlusCapital = _creditPercents + _capital;
-        return totalLoss < totalEarnPlusCapital * _depCredIndexInPercent / 100;
+    function returnDeposits(uint8 day, uint8 hour, uint8 minute) public payable {
+        string memory result;
         
-    }
-    
-    // TODO перенести код в returnDeposits
-    // TODO имплементировать удаление часа
-    // Дима
-    function returnDepositTest(uint8 day, uint8 hour, uint8 minute) public payable returns (string) {
-        bytes memory result;
-        
-        if (deposits.childs[hour].sum != 0) {
+        if (deposits.childs[hour].headIndex == fakeIndex) {
+            result = "hour not found";
+        } else {
             HourEntry hourEntry = deposits.childs[hour];
             result = "hour found";
-         
-            if (hourEntry.childs[minute].sum == 0) {
+            
+            if (hourEntry.childs[minute].nextIndex == 0) {
+                result = concate(result, ", minute not found");
+            } else {
                 MinuteEntry minuteEntry = hourEntry.childs[minute];
-                result = ConcatHelper.concat(result, ", minute found");
+                result = concate(result, ", minute found");
                 
                 for (uint i=0; i<minuteEntry.count; i++) {
-                    minuteEntry.operations[i].clientAddress.transfer(minuteEntry.operations[i].sum + minuteEntry.operations[i].percent);     
+                    // minuteEntry.operations[i].clientAddress.transfer(minuteEntry.operations[i].sum + minuteEntry.operations[i].percent);  
+                    ERC20(owner).transfer(minuteEntry.operations[i].clientAddress, minuteEntry.operations[i].sum + minuteEntry.operations[i].percent);
+                    
+                    deposits.percent = deposits.percent - minuteEntry.operations[i].percent;
                     _capital = _capital - minuteEntry.operations[i].percent;
                 }
                 
-                delete hourEntry.childs[minute];
+                result = concate(result, ", deposits returned");
                 
-                result = ConcatHelper.concat(result, ", deposits returned");
-            } else {
-                result = ConcatHelper.concat(result, ", minute not found");
+                if (hourEntry.headIndex == minute) {
+                    hourEntry.headIndex = minuteEntry.nextIndex;
+                } else if (hourEntry.tailIndex == minute) {
+                    hourEntry.tailIndex = minuteEntry.prevIndex;
+                }
+                
+                if (hourEntry.firstHaveMoneyIndex == minute) {
+                    hourEntry.firstHaveMoneyIndex = minuteEntry.nextHaveMoneyIndex;
+                }
+                
+                delete hourEntry.childs[minute];
             }
-        } else {
-            result = "hour not found";
         }
         
-        return string(result);
+        Test(string(result));
+    }
+    
+    function allocationCreditSum(uint endCreditDate, uint sumCredit) internal returns (bool) {
+        string memory result;
+        
+        uint8 hour = DateTime.getHour(endCreditDate);
+        uint8 minute = DateTime.getMinute(endCreditDate);
+        
+        uint sumAllocate = sumCredit;
+        uint8 count = 0;
+        
+        while (sumAllocate > 0 && hour < 24) {
+            Allocate memory alloc = getAllocationStruct(hour, minute, sumAllocate);
+            allocates[count] = alloc;
+            
+            if (alloc.isCompleted) {
+                // размещение выполнено полностью
+                sumAllocate = 0;
+            } else {
+                // размещение выполнено не полностью, нужно смотреть следующий час
+                sumAllocate = sumAllocate - alloc.sum;
+                hour = hour + 1;
+                minute = 0;
+                count = count + 1;
+            }
+        }
+        
+        if (sumAllocate == 0) {
+            // распределение удалось, проводим реальное распределение
+            for (uint8 i=count; i> 0; i--) {
+                allocationHour(allocates[i-1]);
+                delete allocates[i-1];
+            }
+            
+            return true;
+        } else {
+            // распределение не удалось
+            return false;
+        }
+    }
+    
+    // посчитай покрытие с часа hourEntry c минуты withMinute для суммы sum
+    function getAllocationStruct(uint8 hour, uint withMinute, uint sum) internal returns (Allocate) {
+        uint8 firstIndex;
+        uint8 lastIndex;
+        uint8 beginIndex;
+        uint8 endIndex;
+        uint8 index;
+        uint8 nextIndex;
+        
+        HourEntry hourEntry = deposits.childs[hour];
+        
+        if (hourEntry.firstHaveMoneyIndex > withMinute) {
+            firstIndex = fakeIndex;
+            beginIndex = hourEntry.firstHaveMoneyIndex;
+        } else {
+            // ищем минуту с деньгами сразу до withMinute
+            index = hourEntry.firstHaveMoneyIndex;
+            nextIndex = hourEntry.childs[index].nextHaveMoneyIndex;
+            
+            while (index < withMinute && nextIndex < withMinute) {
+                index = nextIndex;
+                nextIndex = hourEntry.childs[index].nextHaveMoneyIndex;
+            }
+            
+            firstIndex = index;
+            beginIndex = nextIndex;
+        }
+        
+        if (firstIndex != fakeIndex && beginIndex == fakeIndex) {
+            return Allocate(fakeIndex, fakeIndex, fakeIndex, 0, false);    
+        } else {
+            uint sumDeposits = sum;
+            index = beginIndex;
+            
+            while (index != fakeIndex && sumDeposits != 0) {
+                if (sumDeposits < hourEntry.childs[index].sum) {
+                    sumDeposits = 0;
+                    lastIndex = hourEntry.childs[index].nextHaveMoneyIndex;
+                } else {
+                    sumDeposits = sumDeposits - hourEntry.childs[index].sum; 
+                    index = hourEntry.childs[index].nextHaveMoneyIndex;
+                }
+            }
+            
+            if (sumDeposits == 0) {
+                // распределились в этом часу полностью
+                return Allocate(hour, firstIndex, lastIndex, sum, true);
+            } else {
+                // распределились в этом часу частично
+                return Allocate(hour, firstIndex, fakeIndex, sumDeposits, false);
+            }
+        }
+    }
+    
+    // размести с часа c минуты withMinute сумму sumCredit
+    function allocationHour(Allocate allocate) internal {
+        uint8 firstIndex;
+        uint8 index;
+        uint8 nextIndex;
+        
+        HourEntry hourEntry = deposits.childs[allocate.hour];
+        uint sum;
+        
+        if (allocate.firstIndex == fakeIndex) {
+            // размещаем сначала и до конца или allocate.lastIndex
+            index = hourEntry.firstHaveMoneyIndex;
+        } else {
+            // от и до конца или allocate.lastIndex
+            index = hourEntry.childs[allocate.firstIndex].nextHaveMoneyIndex;
+        }
+        
+        if (allocate.isCompleted) {
+            // часть до allocate.lastIndex
+            while (index != allocate.lastIndex) {
+                sum = sum + hourEntry.childs[index].sum;
+                hourEntry.childs[index].sum = 0;
+                index = hourEntry.childs[index].nextHaveMoneyIndex;
+            }
+            
+            hourEntry.childs[index].sum = hourEntry.childs[index].sum - (allocate.sum - sum);
+            hourEntry.sum = hourEntry.sum - allocate.sum;
+        } else {
+            // весь период
+            while (index != fakeIndex) {
+                hourEntry.childs[index].sum = 0;
+                index = hourEntry.childs[index].nextHaveMoneyIndex;
+            }
+            
+            if (allocate.firstIndex == fakeIndex) {
+                hourEntry.sum = 0;
+            } else {
+                hourEntry.sum = hourEntry.sum - allocate.sum;
+            }
+        }
+    }
+    
+    function allocationCreditSumTest(uint endCreditDate, uint sumCredit) public payable returns (bool) {
+        return allocationCreditSum(endCreditDate, sumCredit);
     }
     
     // рассылка депозитов и проверка дефолтов по кредитам    
@@ -222,7 +480,7 @@ contract RoboBank7 {
     }
     
     // установка значений процентов
-    function setSetings(uint8 percentDeposit, uint8 percentCredit) public payable {
+    function setSettings(uint8 percentDeposit, uint8 percentCredit) public payable {
         require(msg.sender == owner);
         require(percentDeposit < percentCredit, "Процент по депозиту должен быть меньше процента по кредиту");
         
@@ -230,42 +488,154 @@ contract RoboBank7 {
         _percentCredit = percentCredit;
     }
     
+    event CreditHasTaken(uint256 t);
     
-    // отсылка белого листа
-    // Сергей
+    function getCredit(uint256 duration, uint16 amount) public payable {
+        address to = msg.sender;
+          //check black list
+          require (
+              blackList[to].length == 0,
+              "Вы в черном списке"
+          );
+          
+          //check rating
+          uint256 need = duration * amount;
+          uint256 have = 0;
+          
+          WhiteClient memory client = whiteList[to];
+          if (client.clientAddress == 0) {
+              have = 1;
+          } else {
+              have = client.usedRating - client.rating;
+          }
+              
+          require (
+              need <= have,
+              "У Вас нет рейтинга"
+          );
+          
+          // check coverage
+          require(
+              allocationCreditSum(endTime * 60, amount),
+              "Нет покрытия"
+          );
+          
+          // all checks are successful    
+          updateRatings(to, need, 1);//TODO 
+          
+          Credits storage allCredits = credits;
+          Credit memory credit = Credit(to, amount);
+          uint256 endTime = now / 60 + duration;
+          add(credits.creditsByAddress[to], endTime);
+          credits.creditsByTime[endTime].push(credit);
+          credits.amount += amount;
+          credits.credPercent += amount * _percentCredit;
+          to.transfer(amount); //TODO    
+        emit CreditHasTaken(endTime);     
+    }
+    
+    function earlyRepayment(uint am) public payable {
+        address repayer = msg.sender;
+        
+        //add BL
+        
+        Credits storage allCreds = credits;
+        
+        CreditorList storage list = allCreds.creditsByAddress[repayer];
+        
+        bool next = true;
+        uint head = list.head;
+        
+        while (next) {
+            Node storage n = list.listCr[head];
+            Credit[] storage cr = allCreds.creditsByTime[n.endTime];
+            for (uint i = 0; i < cr.length; i++) {
+                Credit storage cred = cr[i];
+                if (cred.amount == 0) {
+                    continue;
+                }
+                if (cred.creditor != repayer) {
+                    continue;
+                }
+                if (am > cred.amount) {
+                    delete cr[i];
+                    list.head = list.listCr[head].next;
+                    head = list.head;
+                } else {
+                    if (am == cred.amount) {
+                        delete cr[i];
+                        list.head = list.listCr[head].next;
+                    } else {
+                        cred.amount -=am;
+                    }
+                    next = false;
+                }
+            }
+        }
+        
+        allCreds.amount -= am;
+        allCreds.credPercent -= am * _percentCredit;
+        
+        updateRatings(repayer, am, 1);
+    }
+    
+    function add(CreditorList storage list, uint endTime) private returns (bool) {
+        list.count++;
+        if (list.head == 0) {
+          list.head = list.count;
+          Node memory n = Node(0, 0, endTime);
+          list.listCr[list.count] = n;
+        } else {
+            bool next = true;
+            Node memory newNode;
+            Node storage condidat = list.listCr[list.head];
+            uint condidatInd = list.head;
+            while (next) {
+                if (condidat.endTime < endTime) {
+                    
+                    if (condidat.next == 0) {
+                        condidat.next = list.count;
+                        newNode = Node(0, condidatInd, endTime);
+                        list.listCr[list.count] = newNode;
+                        next = false;
+                    } else {
+                        condidatInd = condidat.next;
+                        condidat = list.listCr[condidat.next];
+                    }
+                } else {
+                    if (condidat.prev == 0) {
+                        list.head = list.count;
+                        newNode = Node(condidatInd, 0, endTime);
+                    } else {
+                        newNode = Node(condidatInd, condidat.prev, endTime);
+                        list.listCr[condidat.prev].next = list.count;
+                        condidat.prev = list.count;
+                    }
+                    list.listCr[list.count] = newNode;
+                    next = false;
+                }
+            }
+        }
+    }
+    
     function getWhiteList() public view returns (string) {
         string memory result = "[";
         require(msg.sender == owner);
         for (uint i = 0; i < whiteListKeys.length; i++) {
             if (i != 0) {
-                result =conc(result, ",");
+                result = concate(result, ",");
             }
             address currentAddress = whiteListKeys[i];
             WhiteClient currentWhiteClient = whiteList[currentAddress];
-            result = conc(result, conc(conc(conc("{address:",address2str(currentAddress)),getWhiteClient(currentWhiteClient)),"}"));
+            result = concate(result, concate(concate(concate("{address:",address2str(currentAddress)),getWhiteClient(currentWhiteClient)),"}"));
         }
-        result = conc(result, "]");
+        result = concate(result, "]");
         return result;
     }
     
     function getWhiteClient(WhiteClient whiteClient) internal returns (string) {
         string memory result;
-        return conc(conc(",rating:", uint2str(whiteClient.rating)), conc(",usedRating:", uint2str(whiteClient.usedRating)));
-    }
-    
-    // отсылка белого листа
-    // Сергей
-    function getMinuteCost() public view returns (uint) {
-        require(msg.sender == owner);
-        return _minutePriceForCredit;
-    }
-    
-    
-    // отсылка черного листа
-    // Сергей
-    function getBlackList() public view returns (string) {
-        require(msg.sender == owner);
-        // TODO нужно имплементировать
+        return concate(concate(",rating:", uint2str(whiteClient.rating)), concate(",usedRating:", uint2str(whiteClient.usedRating)));
     }
     
     function kill() public {
@@ -273,72 +643,7 @@ contract RoboBank7 {
         selfdestruct(msg.sender);
     }
     
-    // проверяем, хватит ли капитала чтобы отдать
-    // сумма процентов депозитов должна быть меньше (капитал + сумма процентов по кредиту - (сумма потерь процентов по дефолту)) 
-    // Дима
-    function canGetDeposit(Operation operation) internal returns (bool) {
-        // TODO - нужно имплементировать
-        return true;
-    }
-    
-    // возвращаем депозиты на дату
-    // Дима
-    function returnDeposits(uint8 day, uint8 hour, uint8 minute) internal {
-        // TODO - после отладки перенести код сюда из returnDepositTest
-    }
-    
-    function checkCredits(uint256 time) internal {
-        Credit[] memory creditsAtTime = credits.creditsByTime[time];
-        for (uint16 i = 0; i < creditsAtTime.length; i++) {
-             Credit memory blackCredit = creditsAtTime[i];
-			 address blackAddress = blackCredit.creditor;
-			 BlackClient storage blackClient = blackList[blackAddress];
-			 CreditOperation[] storage blackOperationsForClient = blackClient.credits;
-			 blackOperationsForClient.push(CreditOperation(time, blackCredit.amount));
-        }
-    }
-    
-    // распределение кредита по депозитам
-    // true - если удалось
-    // false - если нет
-    // Дима
-    function allocationCreditSum(Operation creditOperation) internal returns (bool) {
-        // TODO  - нужно имплементировать
-        return true;
-    }
-    
-    // уведомление о операции, 
-    // typeEvent = 1 - кредит, typeEvent = 2 - депозит
-    // Миша
-    function sendEvent(uint8 typeEvent, uint timeCallWatchDog) internal {
-        // TODO - нужно имплементировать 
-    }
-    
-    // если адрес есть в черном листе верни -1, 
-    // иначе если есть в белом списке верни рейтинг
-    // если не нашел то верни 1
-    // Андрей
-    function getAccessibleRating(address clientAddress) internal returns (uint) {
-        WhiteClient whiteClient = whiteList[clientAddress];
-        return whiteClient.rating - whiteClient.usedRating;
-    } 
-    
-    // увеличь выбранный рейтинг
-    // Сергей
-    function updateUsedRating(address clientAddress, uint usedRating) internal {
-        WhiteClient whiteClient = whiteList[clientAddress];
-        whiteClient.usedRating -= usedRating;
-    }
-    
-    // TODO - убрать возвращение строки
-    // Дима
-    function nows() public payable returns (uint256) {
-        var a = now;
-        return a;
-    }
-    
     // увеличь рейтинг и уменьши выбранный рейтинг 
-    // Сергей
     function updateRatings(address clientAddress, uint usedRating, uint creditNumber) internal {
         WhiteClient whiteClient = whiteList[clientAddress];
         whiteClient.usedRating += usedRating;
@@ -346,10 +651,25 @@ contract RoboBank7 {
         whiteClient.rating *= usedRating/currentRating * _creditLossPercent * (1 + 1 / creditNumber) / 10;
     }
     
-    // расчет процентов в год, typeEvent = 1 - кредит, typeEvent = 2 - депозит
-    // Сергей
-    function calculatePercent(uint8 typeEvent, uint period, uint sum) public view returns (uint) {
-        //  TODO - нужно имплементировать
+    function checkCredits(uint time) internal {
+        Credit[] memory creditsAtTime = credits.creditsByTime[time];
+        for (uint16 i = 0; i < creditsAtTime.length; i++) {
+             Credit memory blackCredit = creditsAtTime[i];
+			 address blackAddress = blackCredit.creditor;
+			 CreditOperation[] storage blackOperationsForClient = blackList[blackAddress];
+			 blackOperationsForClient.push(CreditOperation(time, blackCredit.amount));
+        }
+    }
+    
+    // Проверяем, можем ли дать новый депозит
+    function canBeDepositPut(uint depositSum) internal returns (bool) {
+        uint creditLoss = credits.amount*_creditLossPercent / 100;
+        uint totalLoss = deposits.percent + creditLoss;
+        uint totalEarnPlusCapital = credits.credPercent + _capital;
+        return totalLoss < totalEarnPlusCapital * _depCredIndexInPercent / 100;
+    }
+    
+    function calculatePercent(uint8 typeEvent, uint period, uint sum) internal returns (uint) {
         if (typeEvent == 1) {
 	        return sum * period * _minutePriceForDeposit;
         } else if (typeEvent == 2) {
@@ -358,7 +678,14 @@ contract RoboBank7 {
         return 0;
     }
     
-     function conc(string s1, string s2) internal returns(string) {
+    function address2str(address x) returns (string) {
+        bytes memory b = new bytes(20);
+        for (uint i = 0; i < 20; i++)
+            b[i] = byte(uint8(uint(x) / (2**(8*(19 - i)))));
+        return string(b);
+    }
+    
+    function concate(string memory s1, string memory s2) internal returns (string) {
         return s1.toSlice().concat(s2.toSlice());
     }
     
@@ -378,19 +705,6 @@ contract RoboBank7 {
         }
         return string(bstr);
     }
-    
-    function address2str(address x) returns (string) {
-        bytes memory b = new bytes(20);
-        for (uint i = 0; i < 20; i++)
-            b[i] = byte(uint8(uint(x) / (2**(8*(19 - i)))));
-        return string(b);
-    }
-}
-
-library ConcatHelper {
-    function concat(bytes memory a, bytes memory b) internal pure returns (bytes memory) {
-        return abi.encodePacked(a, b);
-    }
 }
 
 library DateTime {
@@ -409,8 +723,8 @@ library DateTime {
         }
 
         uint constant DAY_IN_SECONDS = 86400;
-        uint constant public YEAR_IN_SECONDS = 31536000;
-        uint constant public LEAP_YEAR_IN_SECONDS = 31622400;
+        uint constant YEAR_IN_SECONDS = 31536000;
+        uint constant LEAP_YEAR_IN_SECONDS = 31622400;
 
         uint constant HOUR_IN_SECONDS = 3600;
         uint constant MINUTE_IN_SECONDS = 60;
@@ -607,5 +921,3 @@ library DateTime {
                 return timestamp;
         }
 }
-
-

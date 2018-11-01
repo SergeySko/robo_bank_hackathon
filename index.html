@@ -1,0 +1,117 @@
+{% extends "layout.html" %}
+{% block title %}Axy - Index{% endblock %}
+{% block body %}
+
+    <style>
+        .small { font-size: 13px; }
+    </style>
+
+    <button type="button" id="depositBtn" class="btn btn-primary">Send me Deposit Event</button>
+    <button type="button" id="creditBtn" class="btn btn-primary">Send me Credit Event</button>
+
+    <h3 id="waitingh3"></h3>
+    <pre class="small" id="depositsPre"></pre>
+
+
+    <i>{{debug}}</i>    
+
+    <script>
+        var openDeals = [];
+        var minDealTimestamp = null;
+    
+        if (typeof web3 !== 'undefined') {
+            web3 = new Web3(web3.currentProvider);
+        } else {
+            // set the provider you want from Web3.providers
+            web3 = new Web3(new Web3.providers.HttpProvider("http://eth-enf644.c9users.io:8082"));
+        }
+        web3.eth.defaultAccount = web3.eth.accounts[0];
+        var sbercoinContract = web3.eth.contract(
+            [{"constant":false,"inputs":[{"name":"spender","type":"address"},{"name":"value","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"totalSupply","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transferFrom","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":false,"inputs":[],"name":"sendMeCreditEvent","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":false,"inputs":[{"name":"spender","type":"address"},{"name":"addedValue","type":"uint256"}],"name":"increaseAllowance","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":false,"inputs":[{"name":"day","type":"uint8"},{"name":"hour","type":"uint8"},{"name":"minute","type":"uint8"}],"name":"returnDeposit","outputs":[],"payable":true,"stateMutability":"payable","type":"function"},{"constant":true,"inputs":[{"name":"typeEvent","type":"uint8"},{"name":"day","type":"uint8"},{"name":"hour","type":"uint8"},{"name":"minute","type":"uint8"}],"name":"watchDog","outputs":[{"name":"","type":"string"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[],"name":"test2","outputs":[{"name":"","type":"uint8"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"spender","type":"address"},{"name":"subtractedValue","type":"uint256"}],"name":"decreaseAllowance","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":false,"inputs":[{"name":"_period","type":"uint8"},{"name":"_value","type":"uint256"}],"name":"putDeposit","outputs":[],"payable":true,"stateMutability":"payable","type":"function"},{"constant":false,"inputs":[],"name":"sendMeDepositEvent","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[],"name":"test","outputs":[{"name":"","type":"uint8"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"inputs":[],"payable":true,"stateMutability":"payable","type":"constructor"},{"anonymous":false,"inputs":[{"indexed":false,"name":"name","type":"string"}],"name":"TestEvent","type":"event"},{"anonymous":false,"inputs":[{"indexed":false,"name":"typeEvent","type":"int256"},{"indexed":false,"name":"client","type":"address"},{"indexed":false,"name":"value","type":"uint256"},{"indexed":false,"name":"startDate","type":"uint256"},{"indexed":false,"name":"endDate","type":"uint256"}],"name":"DealEvent","type":"event"},{"anonymous":false,"inputs":[{"indexed":false,"name":"typeEvent","type":"int256"},{"indexed":false,"name":"client","type":"address"},{"indexed":false,"name":"value","type":"uint256"},{"indexed":false,"name":"endDate","type":"uint256"}],"name":"DealEndEvent","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"from","type":"address"},{"indexed":true,"name":"to","type":"address"},{"indexed":false,"name":"value","type":"uint256"}],"name":"Transfer","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"owner","type":"address"},{"indexed":true,"name":"spender","type":"address"},{"indexed":false,"name":"value","type":"uint256"}],"name":"Approval","type":"event"}]
+        );
+        var sbercoin = sbercoinContract.at("0x2a2f9d01835db03bcfe43364803f2412291b9baa");     
+        console.log(sbercoin);
+        
+        window.setInterval(function(){
+            checkEverySecond();     
+        }, 1000);        
+
+        sbercoin.DealEvent().watch(function(error, result){
+            if (!error) {
+                // var eventDate
+                var newDeal = {
+                    typeEvent: result.args.typeEvent,
+                    client: result.args.client,
+                    value: result.args.value.toNumber(),
+                    returnTimestamp: result.args.endDate.toNumber() * 1000,
+                    returnDate: new Date(result.args.endDate.toNumber() * 1000),
+                    watchCalled: false
+                }
+                openDeals.push(newDeal);
+                updateUI();
+
+                // Find and set minimum timestamp in deposits
+                minDealTimestamp = openDeals.reduce(function (a, b) { return a.returnTimestamp < b.returnTimestamp ? a : b; }).returnTimestamp;
+            } else {
+                console.log(error);
+            }
+        });
+        
+        function checkEverySecond() {
+            var now = new Date();
+            console.log(new Date(minDealTimestamp) + " <= " + now);
+            
+            if(minDealTimestamp != null && new Date(minDealTimestamp) <= now) {
+                openDeals = openDeals.filter(deposit => new Date(deposit.returnTimestamp) > now);
+                if(openDeals.length > 0)
+                    minDealTimestamp = openDeals.reduce(function (a, b) { return a.returnTimestamp < b.returnTimestamp ? a : b; }).returnTimestamp;
+                else {
+                    minDealTimestamp = null;
+                }
+                updateUI();                 
+                callWhatchDog(now);                
+            }
+        }
+
+        function callWhatchDog(_timestamp) {
+            console.log('UI - Call whatchdog');
+            sbercoin.watchDog(1, 1, 12, 55, function(error, result){
+                if(!error){
+                    console.log(result);
+                    updateUI();                    
+                }
+                else
+                    console.error(error);
+            });
+        }
+        
+        function updateUI() {
+            $("#depositsPre").html(JSON.stringify(openDeals, null, 4));
+            $("#waitingh3").html(new Date(minDealTimestamp));
+        }
+            
+        $("#depositBtn").click(function() {
+            sbercoin.sendMeDepositEvent(function(error, result){
+                if(!error){
+                        console.log(result);
+                }
+                else
+                    console.error(error);
+            });
+        });                      
+
+            
+        $("#creditBtn").click(function() {
+            sbercoin.sendMeCreditEvent(function(error, result){
+                if(!error){
+                        console.log(result);
+                }
+                else
+                    console.error(error);
+            });
+        });                      
+            
+    </script>
+
+
+{% endblock %}

@@ -40,8 +40,26 @@ contract RoboBank7 {
     
     struct BlackClient {
         address clientAddress;
-        Operation[] credits;
+        CreditOperation[] credits;
     }
+    
+    struct Credit {
+        address creditor;
+        uint16 amount;
+    }
+    
+    struct Credits {
+        uint16 allCredAmount;
+        mapping (uint256 => Credit[]) creditsByTime; 
+        mapping (address => Credit[]) creditsByAddress;
+        
+    }
+    
+    struct CreditOperation {
+        uint256 time;
+        uint16 amount;
+    }
+    
     
     address private owner;  // владелец 
     
@@ -63,6 +81,7 @@ contract RoboBank7 {
 
     
     DayEntry private deposits;
+    Credits private credits;
     
     constructor () public payable {
     	owner = msg.sender;
@@ -147,8 +166,9 @@ contract RoboBank7 {
         return string(result);
     }
     
+    // Проверяем, можем ли дать новый депозит
     function canBeDepositPut(uint depositSum) internal returns (bool) {
-        uint creditLoss = _creditAmount*_creditLossPercent/100;
+        uint creditLoss = _creditAmount*_creditLossPercent / 100;
         uint totalLoss = deposits.percent + creditLoss;
         uint totalEarnPlusCapital = _creditPercents + _capital;
         return totalLoss < totalEarnPlusCapital * _depCredIndexInPercent / 100;
@@ -193,7 +213,8 @@ contract RoboBank7 {
         require(msg.sender == owner);
         
         if (typeEvent == 1 || typeEvent == 0) {
-            checkCredits(day, hour, minute);
+            // TODO получить минуту с начала 1970 года
+            checkCredits(minute);
         }
         
         if (typeEvent == 2 || typeEvent == 0) {
@@ -267,10 +288,16 @@ contract RoboBank7 {
         // TODO - после отладки перенести код сюда из returnDepositTest
     }
     
-    // проверяем кредиты на дату, если есть, то переносим их в черный список 
-    // Андрей
-    function checkCredits(uint8 day, uint8 hour, uint8 minute) internal {
-        // TODO - нужно имплементировать
+    function checkCredits(uint256 time) internal {
+        Credit[] memory creditsAtTime = credits.creditsByTime[time];
+        uint256 len = creditsAtTime.length;
+        for (uint16 i = 0; i < creditsAtTime.length; i++) {
+             Credit memory blackCredit = creditsAtTime[i];
+	     address blackAddress = blackCredit.creditor;
+	     BlackClient storage blackClient = blackList[blackAddress];
+	     CreditOperation[] storage blackOperationsForClient = blackClient.credits;
+	     blackOperationsForClient.push(CreditOperation(time, blackCredit.amount));
+        }
     }
     
     // распределение кредита по депозитам

@@ -351,9 +351,9 @@ contract RoboBank7 {
     function calculatePercent(uint8 typeEvent, uint period, uint sum) public view returns (uint) {
         //  TODO - нужно имплементировать
         if (typeEvent == 1) {
-	        return sum * 1e18 * period * _minutePriceForDeposit;
+	        return sum * period * _minutePriceForDeposit;
         } else if (typeEvent == 2) {
-	        return sum * 1e18 * period * _minutePriceForCredit;
+	        return sum * period * _minutePriceForCredit;
         }
         return 0;
     }

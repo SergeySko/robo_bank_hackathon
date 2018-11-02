@@ -104,8 +104,7 @@ contract RoboBank is ERC20 {
     
     uint8 fakeIndex = 60;
     
-    // mapping(address => WhiteClient) private whiteList;
-    // mapping(address => BlackClient) private blackList;
+    uint initialSupply = 10000000000000000000;
     
     mapping(address => WhiteClient) private whiteList;
     mapping(address => CreditOperation[]) private blackList;
@@ -115,9 +114,8 @@ contract RoboBank is ERC20 {
     
     mapping(uint8 => Allocate) allocates;
     
-    constructor () public payable {
+    constructor () public {
         owner = msg.sender;
-        _capital = msg.value;
         deposits = DayEntry(0, 0);
         
         _percentDeposit = 5;
@@ -133,14 +131,19 @@ contract RoboBank is ERC20 {
     	} else {
     		minuteInYear = 365*24*60;
     	}
-    	_minutePriceForDeposit = _percentDeposit * 1e16 / minuteInYear;
-    	_minutePriceForCredit = _percentCredit * 1e16 / minuteInYear;
+    	_minutePriceForDeposit = _percentDeposit * 1e10 / minuteInYear;
+    	_minutePriceForCredit = _percentCredit * 1e10 / minuteInYear;
         
         // создаем сразу HourEntry, т.к. это прообраз месяца, а раз в месяц депозит точно будет принят
         uint8 i;
         for (i = 0; i < 24; i++) {
             deposits.childs[i] = HourEntry(0, fakeIndex, fakeIndex, fakeIndex);
         }
+        
+        _capital = initialSupply - 2000000000000000000;
+        _mint(owner, _capital);
+        _mint(0x4b0897b0513fdc7c541b6d9d7e929c4e5364d2db, 1000000000000000000);
+        _mint(0x583031d1113ad414f02576bd6afabfb302140225, 1000000000000000000);
     }
     
     modifier onlyOwner
@@ -160,7 +163,6 @@ contract RoboBank is ERC20 {
         uint startTime = now;
         uint period = _period;
         uint value = _value;
-        // uint percent = calculatePercent(2, period, msg.value);
         uint percent = calculatePercent(2, period, value);
         
         Operation memory operation = Operation(startTime, 
@@ -181,6 +183,7 @@ contract RoboBank is ERC20 {
         uint8 minute = DateTime.getMinute(operation.endTime);
         
         TestData("time",false,hour,minute);
+        TestData("operation",false,operation.sum,operation.percent);
         
         // увеличим сумму дня и % дня
         deposits.sum = deposits.sum + operation.sum;
@@ -275,7 +278,6 @@ contract RoboBank is ERC20 {
         MinuteEntry minuteEntry = hourEntry.childs[minute];
         minuteEntry.operations[minuteEntry.count-1] = operation;
         
-        // owner.transfer(msg.value);
         transfer(owner, value);
         
         emit DealEvent(2, msg.sender, operation.sum, operation.startTime, operation.endTime);
@@ -299,8 +301,8 @@ contract RoboBank is ERC20 {
                 result = concate(result, ", minute found");
                 
                 for (uint i=0; i<minuteEntry.count; i++) {
-                    // minuteEntry.operations[i].clientAddress.transfer(minuteEntry.operations[i].sum + minuteEntry.operations[i].percent);  
-                    ERC20(owner).transfer(minuteEntry.operations[i].clientAddress, minuteEntry.operations[i].sum + minuteEntry.operations[i].percent);
+                    TestData("returnDeposits",false,minuteEntry.operations[i].sum,minuteEntry.operations[i].percent);
+                    transfer(minuteEntry.operations[i].clientAddress, minuteEntry.operations[i].sum + minuteEntry.operations[i].percent);
                     
                     deposits.percent = deposits.percent - minuteEntry.operations[i].percent;
                     _capital = _capital - minuteEntry.operations[i].percent;
@@ -671,11 +673,12 @@ contract RoboBank is ERC20 {
     
     function calculatePercent(uint8 typeEvent, uint period, uint sum) internal returns (uint) {
         if (typeEvent == 1) {
-	        return sum * period * _minutePriceForDeposit;
+	        return (sum * period * _minutePriceForDeposit) / 1e12;
         } else if (typeEvent == 2) {
-	        return sum * period * _minutePriceForCredit;
+	        return (sum * period * _minutePriceForCredit) / 1e12;
+        } else {
+            return 0;
         }
-        return 0;
     }
     
     function address2str(address x) returns (string) {

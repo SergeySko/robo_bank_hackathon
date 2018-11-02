@@ -116,7 +116,7 @@ contract RoboBank is ERC20 {
     mapping(uint8 => Allocate) allocates;
     
     constructor () public {
-        owner = msg.sender;
+        owner = this;
         deposits = DayEntry(0, 0);
         
         _percentDeposit = 5;
@@ -535,7 +535,7 @@ contract RoboBank is ERC20 {
           add(credits.creditsByAddress[to], endTime, credits.creditsByTime[endTime].length - 1);
           credits.amount += amount;
           credits.credPercent += amount * _percentCredit;
-          transfer(to, amount);   
+          ERC20(owner).transfer(to, amount);   
         emit CreditHasTaken(endTime);     
     }
     
@@ -591,7 +591,7 @@ contract RoboBank is ERC20 {
             sum -= amount;
         }
        
-        transfer(owner, sum - amount);
+        ERC20(owner).transfer(owner, sum - amount);
         allCreds.amount -= sum;
         allCreds.credPercent -= sum * _percentCredit;
         updateRatings(repayer, sum);

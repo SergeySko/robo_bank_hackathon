@@ -8,8 +8,9 @@ contract RoboBank is ERC20 {
     
     event Test(string);
     event TestData(string, bool, uint, uint);
-    event DealEvent(int typeEvent, address client, uint value, uint startDate, uint endDate); 
+    event DealEvent(int typeEvent, address client, uint value, uint startDate, uint endDate);    
     event DealEndEvent(int typeEvent, address client, uint value, uint endDate);
+    event GetAssetInfoEvent(string symbol);    
     
     struct DayEntry {
         uint sum;
@@ -143,7 +144,7 @@ contract RoboBank is ERC20 {
         
         _capital = initialSupply - 2000000000000000000;
         _mint(owner, _capital);
-        _mint(0x4b0897b0513fdc7c541b6d9d7e929c4e5364d2db, 1000000000000000000);
+        _mint(0x04416e107d28d2f3e9d2aeb04eb9701a1defdff2, 1000000000000000000);
         _mint(0x583031d1113ad414f02576bd6afabfb302140225, 1000000000000000000);
     }
     
@@ -286,46 +287,51 @@ contract RoboBank is ERC20 {
         TestData(string(result), false, hour, minute);
     }
     
-    function returnDeposits(uint8 day, uint8 hour, uint8 minute) public payable {
-        string memory result;
+    function returnDeposits(uint8 day, uint8 hour, uint8 minute) public {
+        // string memory result;
         
         if (deposits.childs[hour].headIndex == fakeIndex) {
-            result = "hour not found";
+            // result = "hour not found";
         } else {
             HourEntry hourEntry = deposits.childs[hour];
-            result = "hour found";
+            // result = "hour found";
             
             if (hourEntry.childs[minute].nextIndex == 0) {
-                result = concate(result, ", minute not found");
+                // result = concate(result, ", minute not found");
             } else {
                 MinuteEntry minuteEntry = hourEntry.childs[minute];
-                result = concate(result, ", minute found");
+                // result = concate(result, ", minute found");
                 
                 for (uint i=0; i<minuteEntry.count; i++) {
-                    TestData("returnDeposits",false,minuteEntry.operations[i].sum,minuteEntry.operations[i].percent);
+                    // TestData("returnDeposits",false,minuteEntry.operations[i].sum,minuteEntry.operations[i].percent);
                     ERC20(owner).transfer(minuteEntry.operations[i].clientAddress, minuteEntry.operations[i].sum + minuteEntry.operations[i].percent);
                     
-                    deposits.percent = deposits.percent - minuteEntry.operations[i].percent;
-                    _capital = _capital - minuteEntry.operations[i].percent;
+                    // if (minuteEntry.operations[i].percent >= deposits.percent) {
+                    //     deposits.percent = 0;
+                    // } else {
+                    //     deposits.percent = deposits.percent - minuteEntry.operations[i].percent; 
+                    // }
+                    deposits.percent = 1;
+                    // _capital = _capital - minuteEntry.operations[i].percent;
                 }
                 
-                result = concate(result, ", deposits returned");
+                // result = concate(result, ", deposits returned");
                 
-                if (hourEntry.headIndex == minute) {
-                    hourEntry.headIndex = minuteEntry.nextIndex;
-                } else if (hourEntry.tailIndex == minute) {
-                    hourEntry.tailIndex = minuteEntry.prevIndex;
-                }
+                // if (hourEntry.headIndex == minute) {
+                //     hourEntry.headIndex = minuteEntry.nextIndex;
+                // } else if (hourEntry.tailIndex == minute) {
+                //     hourEntry.tailIndex = minuteEntry.prevIndex;
+                // }
                 
-                if (hourEntry.firstHaveMoneyIndex == minute) {
-                    hourEntry.firstHaveMoneyIndex = minuteEntry.nextHaveMoneyIndex;
-                }
+                // if (hourEntry.firstHaveMoneyIndex == minute) {
+                //     hourEntry.firstHaveMoneyIndex = minuteEntry.nextHaveMoneyIndex;
+                // }
                 
-                delete hourEntry.childs[minute];
+                // delete hourEntry.childs[minute];
             }
         }
         
-        Test(string(result));
+        // Test(string(result));
     }
     
     function allocationCreditSum(uint endCreditDate, uint sumCredit) internal returns (bool) {
@@ -469,9 +475,7 @@ contract RoboBank is ERC20 {
     
     // рассылка депозитов и проверка дефолтов по кредитам    
     // typeEvent = 0 - кредит и депозит, 1 - кредит, 2 - депозит
-    function watchDog(uint8 typeEvent, uint timestamp) public payable {
-        require(msg.sender == owner);
-        
+    function watchDog(uint8 typeEvent, uint timestamp) public {
         if (typeEvent == 1 || typeEvent == 0) {
             checkCredits(timestamp / 60);
         }
@@ -482,7 +486,7 @@ contract RoboBank is ERC20 {
     }
     
     // установка значений процентов
-    function setSettings(uint8 percentDeposit, uint8 percentCredit) public payable {
+    function setSettings(uint8 percentDeposit, uint8 percentCredit) public {
         require(msg.sender == owner);
         require(percentDeposit < percentCredit, "Процент по депозиту должен быть меньше процента по кредиту");
         
@@ -492,7 +496,7 @@ contract RoboBank is ERC20 {
     
        event CreditHasTaken(uint256 t);
     
-    function getCredit(uint256 duration, uint256 amount) public payable {
+    function getCredit(uint256 duration, uint256 amount) public {
         address to = msg.sender;
           //check black list
           require (
@@ -505,9 +509,9 @@ contract RoboBank is ERC20 {
           if (need == 0) {
               need = 1;
           } 
-          uint have256 = 0;
+          uint256 have = 0;
           
-          if (whiteList[to].clientAddress == 0) {
+          if (whiteList[to].clientAddress == address(0)) {
 	      have = 1;
 	      whiteList[to] = WhiteClient(to, have, 0);
           } else {
@@ -526,9 +530,9 @@ contract RoboBank is ERC20 {
         //   );
           
           // all checks are successful    
-          updateRatings(to, need);
+           updateRatings(to, need);
           
-          Credits storage allCredits = credits;
+        //   Credits storage allCredits = credits;
           Credit memory credit = Credit(to, amount);
           uint256 endTime = now / 60 + duration;
           credits.creditsByTime[endTime].push(credit);
@@ -536,6 +540,7 @@ contract RoboBank is ERC20 {
           credits.amount += amount;
           credits.credPercent += amount * _percentCredit;
           ERC20(owner).transfer(to, amount);   
+        emit DealEvent(1, msg.sender, amount, now, now + (duration * 60));          
         emit CreditHasTaken(endTime);     
     }
     
@@ -594,7 +599,7 @@ contract RoboBank is ERC20 {
         ERC20(owner).transfer(owner, sum - amount);
         allCreds.amount -= sum;
         allCreds.credPercent -= sum * _percentCredit;
-	_capital += sum * _percentCredit;
+		_capital += sum * _percentCredit;
         updateRatings(repayer, sum);
         emit SuccessfulRepayment("Кредит погашен", amount);
     }
@@ -676,20 +681,20 @@ contract RoboBank is ERC20 {
     }
     
     // увеличь рейтинг и уменьши выбранный рейтинг 
-    function updateRatings(address clientAddress, uint usedRating) internal {
+    function updateRatings(address clientAddress, uint usedRating)  {
         WhiteClient whiteClient = whiteList[clientAddress];
         whiteClient.usedRating += usedRating;
         uint currentRating = whiteClient.rating;
-        whiteClient.rating *= usedRating/currentRating * _creditLossPercent / 10;
+        whiteClient.rating += usedRating * _creditLossPercent / 10;
     }
     
-    function checkCredits(uint time) internal {
+    function checkCredits(uint time)  {
         Credit[] memory creditsAtTime = credits.creditsByTime[time];
         for (uint16 i = 0; i < creditsAtTime.length; i++) {
              Credit memory blackCredit = creditsAtTime[i];
-	     address blackAddress = blackCredit.creditor;
-	     CreditOperation[] storage blackOperationsForClient = blackList[blackAddress];
-             blackOperationsForClient.push(CreditOperation(time, blackCredit.amount));
+			 address blackAddress = blackCredit.creditor;
+			 CreditOperation[] storage blackOperationsForClient = blackList[blackAddress];
+			 blackOperationsForClient.push(CreditOperation(time, blackCredit.amount));
         }
     }
     
@@ -738,6 +743,33 @@ contract RoboBank is ERC20 {
         }
         return string(bstr);
     }
+    
+    function sendMeDepositEvent() public returns (bool) {
+        emit DealEvent(2, msg.sender, 1000, now, (now + 15));
+        return true;
+    }
+    
+    function sendMeCreditEvent() public returns (bool) {
+        emit DealEvent(1, msg.sender, 500, now, (now + 15));
+        return true;
+    }    
+    
+    string assetInfo = "initial";
+
+    //NEOBTC    
+    function GetAssetInfo(string symbol) returns (bool) {
+        emit GetAssetInfoEvent(symbol);
+        return true;
+    }
+
+    function SetAssetInfo(string info) public returns (string) {
+        assetInfo = info;
+        return assetInfo;
+    }
+
+    function PrintAssetInfo(string info) public constant returns (string) {
+        return assetInfo;
+    }    
 }
 
 library DateTime {

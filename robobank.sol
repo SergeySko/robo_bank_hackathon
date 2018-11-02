@@ -535,7 +535,7 @@ contract RoboBank is ERC20 {
           add(credits.creditsByAddress[to], endTime, credits.creditsByTime[endTime].length - 1);
           credits.amount += amount;
           credits.credPercent += amount * _percentCredit;
-          to.transfer(amount); //TODO    
+          transfer(to, amount);   
         emit CreditHasTaken(endTime);     
     }
     
@@ -577,7 +577,7 @@ contract RoboBank is ERC20 {
         }
         
         if (amount > 0) {
-           repayer.transfer(amount);  
+           transfer(owner, amount);  
         }
        
         allCreds.amount -= amount;

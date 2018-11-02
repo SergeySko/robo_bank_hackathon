@@ -83,6 +83,7 @@ contract RoboBank is ERC20 {
         uint next;
         uint prev;
         uint endTime;
+	uint id;
     }
     
     struct CreditOperation {
@@ -490,7 +491,7 @@ contract RoboBank is ERC20 {
         _percentCredit = percentCredit;
     }
     
-    event CreditHasTaken(uint256 t);
+       event CreditHasTaken(uint256 t);
     
     function getCredit(uint256 duration, uint16 amount) public payable {
         address to = msg.sender;
@@ -508,7 +509,7 @@ contract RoboBank is ERC20 {
           if (client.clientAddress == 0) {
               have = 1;
           } else {
-              have = client.usedRating - client.rating;
+              have = client.rating - client.usedRating;
           }
               
           require (
@@ -517,75 +518,77 @@ contract RoboBank is ERC20 {
           );
           
           // check coverage
-          require(
-              allocationCreditSum(endTime * 60, amount),
-              "Нет покрытия"
-          );
+        //   require(
+        //       allocationCreditSum(endTime * 60, amount),
+        //       "Нет покрытия"
+        //   );
           
           // all checks are successful    
-          updateRatings(to, need, 1);//TODO 
+        //   updateRatings(to, need, 1);//TODO 
           
           Credits storage allCredits = credits;
           Credit memory credit = Credit(to, amount);
           uint256 endTime = now / 60 + duration;
-          add(credits.creditsByAddress[to], endTime);
           credits.creditsByTime[endTime].push(credit);
+          add(credits.creditsByAddress[to], endTime, credits.creditsByTime[endTime].length - 1);
           credits.amount += amount;
           credits.credPercent += amount * _percentCredit;
           to.transfer(amount); //TODO    
         emit CreditHasTaken(endTime);     
     }
     
-    function earlyRepayment(uint am) public payable {
+    event SuccessfulRepayment(string, uint);
+    
+    function earlyRepayment(uint amount) public payable {
         address repayer = msg.sender;
         
         //add BL
-        
         Credits storage allCreds = credits;
-        
         CreditorList storage list = allCreds.creditsByAddress[repayer];
-        
         bool next = true;
         uint head = list.head;
-        
         while (next) {
-            Node storage n = list.listCr[head];
-            Credit[] storage cr = allCreds.creditsByTime[n.endTime];
-            for (uint i = 0; i < cr.length; i++) {
-                Credit storage cred = cr[i];
-                if (cred.amount == 0) {
-                    continue;
-                }
-                if (cred.creditor != repayer) {
-                    continue;
-                }
-                if (am > cred.amount) {
-                    delete cr[i];
+            if (head == 0) {
+                list.count = 0;
+                next = false;
+            } else {
+                Node storage n = list.listCr[head];
+                Credit[] storage creds = allCreds.creditsByTime[n.endTime];
+                Credit storage cred = creds[n.id];
+                if (amount > cred.amount) {
+                    amount -= cred.amount;
+                    delete creds[n.id];
                     list.head = list.listCr[head].next;
                     head = list.head;
                 } else {
-                    if (am == cred.amount) {
-                        delete cr[i];
+                    if (amount == cred.amount) {
+                        delete creds[n.id];
                         list.head = list.listCr[head].next;
+                        head = list.head;
                     } else {
-                        cred.amount -=am;
+                        cred.amount -=amount;
                     }
                     next = false;
-                }
+                    amount = 0;
+                }  
             }
         }
         
-        allCreds.amount -= am;
-        allCreds.credPercent -= am * _percentCredit;
-        
-        updateRatings(repayer, am, 1);
+        if (amount > 0) {
+           repayer.transfer(amount);  
+        }
+       
+        // allCreds.amount -= amount;
+        // allCreds.credPercent -= amount * _percentCredit;
+        // updateRatings(repayer, amount, 1);
+        emit SuccessfulRepayment("Кредит погашен", amount);
     }
     
-    function add(CreditorList storage list, uint endTime) private returns (bool) {
+    function add(CreditorList storage list, uint endTime, uint id) private returns (bool) {
         list.count++;
         if (list.head == 0) {
           list.head = list.count;
-          Node memory n = Node(0, 0, endTime);
+          Node memory n = Node(0, 0, endTime, id);
           list.listCr[list.count] = n;
         } else {
             bool next = true;
@@ -597,7 +600,7 @@ contract RoboBank is ERC20 {
                     
                     if (condidat.next == 0) {
                         condidat.next = list.count;
-                        newNode = Node(0, condidatInd, endTime);
+                        newNode = Node(0, condidatInd, endTime, id);
                         list.listCr[list.count] = newNode;
                         next = false;
                     } else {
@@ -607,9 +610,9 @@ contract RoboBank is ERC20 {
                 } else {
                     if (condidat.prev == 0) {
                         list.head = list.count;
-                        newNode = Node(condidatInd, 0, endTime);
+                        newNode = Node(condidatInd, 0, endTime, id);
                     } else {
-                        newNode = Node(condidatInd, condidat.prev, endTime);
+                        newNode = Node(condidatInd, condidat.prev, endTime, id);
                         list.listCr[condidat.prev].next = list.count;
                         condidat.prev = list.count;
                     }

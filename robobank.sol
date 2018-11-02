@@ -469,16 +469,15 @@ contract RoboBank is ERC20 {
     
     // рассылка депозитов и проверка дефолтов по кредитам    
     // typeEvent = 0 - кредит и депозит, 1 - кредит, 2 - депозит
-    function watchDog(uint8 typeEvent, uint8 day, uint8 hour, uint8 minute) public payable {
+    function watchDog(uint8 typeEvent, uint timestamp) public payable {
         require(msg.sender == owner);
         
         if (typeEvent == 1 || typeEvent == 0) {
-            // TODO получить минуту с начала 1970 года
-            checkCredits(minute);
+            checkCredits(timestamp / 60);
         }
         
         if (typeEvent == 2 || typeEvent == 0) {
-            returnDeposits(day, hour, minute);
+            returnDeposits(2, DateTime.getHour(timestamp), DateTime.getMinute(timestamp));
         }
     }
     

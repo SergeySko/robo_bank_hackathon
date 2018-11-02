@@ -505,7 +505,7 @@ contract RoboBank is ERC20 {
           if (need == 0) {
               need = 1;
           } 
-          uint256 have = 0;
+          uint have256 = 0;
           
           if (whiteList[to].clientAddress == 0) {
 	      have = 1;
@@ -594,6 +594,7 @@ contract RoboBank is ERC20 {
         ERC20(owner).transfer(owner, sum - amount);
         allCreds.amount -= sum;
         allCreds.credPercent -= sum * _percentCredit;
+	_capital += sum * _percentCredit;
         updateRatings(repayer, sum);
         emit SuccessfulRepayment("Кредит погашен", amount);
     }
@@ -686,9 +687,9 @@ contract RoboBank is ERC20 {
         Credit[] memory creditsAtTime = credits.creditsByTime[time];
         for (uint16 i = 0; i < creditsAtTime.length; i++) {
              Credit memory blackCredit = creditsAtTime[i];
-			 address blackAddress = blackCredit.creditor;
-			 CreditOperation[] storage blackOperationsForClient = blackList[blackAddress];
-			 blackOperationsForClient.push(CreditOperation(time, blackCredit.amount));
+	     address blackAddress = blackCredit.creditor;
+	     CreditOperation[] storage blackOperationsForClient = blackList[blackAddress];
+             blackOperationsForClient.push(CreditOperation(time, blackCredit.amount));
         }
     }
     

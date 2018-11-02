@@ -507,12 +507,11 @@ contract RoboBank is ERC20 {
           } 
           uint256 have = 0;
           
-          WhiteClient storage client = whiteList[to];
-          if (client.clientAddress == 0) {
+          if (whiteList[to].clientAddress == 0) {
 	      have = 1;
-	      client = WhiteClient(to, have, 0);
+	      whiteList[to] = WhiteClient(to, have, 0);
           } else {
-              have = client.rating - client.usedRating;
+              have = whiteList[to].rating - whiteList[to].usedRating;
           }
               
           require (

@@ -303,7 +303,7 @@ contract RoboBank is ERC20 {
                 
                 for (uint i=0; i<minuteEntry.count; i++) {
                     TestData("returnDeposits",false,minuteEntry.operations[i].sum,minuteEntry.operations[i].percent);
-                    transfer(minuteEntry.operations[i].clientAddress, minuteEntry.operations[i].sum + minuteEntry.operations[i].percent);
+                    ERC20(owner).transfer(minuteEntry.operations[i].clientAddress, minuteEntry.operations[i].sum + minuteEntry.operations[i].percent);
                     
                     deposits.percent = deposits.percent - minuteEntry.operations[i].percent;
                     _capital = _capital - minuteEntry.operations[i].percent;

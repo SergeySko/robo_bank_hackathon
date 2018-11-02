@@ -504,9 +504,10 @@ contract RoboBank is ERC20 {
           uint256 need = duration * amount;
           uint256 have = 0;
           
-          WhiteClient memory client = whiteList[to];
+          WhiteClient storage client = whiteList[to];
           if (client.clientAddress == 0) {
               have = 1;
+	      client = WhiteClient(to, have, 0)
           } else {
               have = client.rating - client.usedRating;
           }

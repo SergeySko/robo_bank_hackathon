@@ -540,15 +540,25 @@ contract RoboBank is ERC20 {
     }
     
     event SuccessfulRepayment(string, uint);
-    
+   
     function earlyRepayment(uint amount) public payable {
         address repayer = msg.sender;
+        CreditOperation[] storage oldCredits = blackList[repayer];
+          for (uint16 i = 0; i < oldCredits.length; i++) {
+              uint256 debt = oldCredits[i].amount;
+              oldCredits[i].amount -= amount; 
+              amount -= debt;
+              transfer(owner, amount);
+              if (amount == 0) {
+                  return;
+              }
+          }
         
-        //add BL
         Credits storage allCreds = credits;
         CreditorList storage list = allCreds.creditsByAddress[repayer];
         bool next = true;
         uint head = list.head;
+        uint sum = amount;
         while (next) {
             if (head == 0) {
                 list.count = 0;
@@ -577,13 +587,27 @@ contract RoboBank is ERC20 {
         }
         
         if (amount > 0) {
-           transfer(owner, amount);  
+            transfer(repayer, sum);
+            sum -= amount;
         }
        
-        allCreds.amount -= amount;
-        allCreds.credPercent -= amount * _percentCredit;
-        updateRatings(repayer, amount);
+        transfer(owner, sum - amount);
+        allCreds.amount -= sum;
+        allCreds.credPercent -= sum * _percentCredit;
+        updateRatings(repayer, sum);
         emit SuccessfulRepayment("Кредит погашен", amount);
+    }
+    
+    function checksCredits(uint endTime) public {
+        Credits storage credits;
+        Credit[] creds = credits.creditsByTime[endTime];
+        if (creds.length == 0) {
+            return;
+        }
+        for (uint i = 0; i < creds.length; i++) {
+            blackList[creds[i].creditor].push(CreditOperation(endTime, creds[i].amount));
+        }
+        creds.length = 0;
     }
     
     function add(CreditorList storage list, uint endTime, uint id) private returns (bool) {
